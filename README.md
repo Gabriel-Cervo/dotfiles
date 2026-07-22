@@ -86,3 +86,5 @@ The pre-migration backup is at `~/dotfiles-omz-backup-YYYYMMDD-HHMMSS.tar.gz`.
 - `fast-syntax-highlighting` is at `zdharma-continuum/fast-syntax-highlighting` (the `zsh-users` mirror is a 404 — long story; the canonical home moved).
 - The bootstrap is macOS-only (uses Homebrew). On Linux you'd need to install `fnm` and `rbenv` another way.
 - This is a **public** repo by design (so the `curl | bash` one-liner works without auth from any machine including a fresh company PC). If you want to keep some bits private, add them to a `local.zsh` and gitignore that file (currently not part of the layout).
+- **`p10k configure` and the `.zshrc` modification prompt**: if you re-run `p10k configure`, the wizard will offer to modify `~/.zshrc` to add the p10k instant-prompt block. **Decline** — your p10k config is already wired up through `~/.config/zsh/prompt.zsh`, and accepting would duplicate it. To restore the clean `zshrc` if you accidentally say yes: `git -C ~/dotfiles checkout zsh/zshrc`.
+

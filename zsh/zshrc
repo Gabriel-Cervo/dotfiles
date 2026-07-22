@@ -15,3 +15,9 @@ source "$HOME/.config/zsh/prompt.zsh"
 source "$HOME/.config/zsh/plugins.zsh"
 source "$HOME/.config/zsh/tools/rbenv.zsh"
 source "$HOME/.config/zsh/tools/fnm.zsh"
+
+# p10k integration lives in prompt.zsh. If you ever re-run `p10k configure`
+# and the wizard offers to modify ~/.zshrc, **decline** — your p10k config is
+# already wired up through prompt.zsh, and accepting would duplicate the
+# instant-prompt block. To restore this clean file at any time:
+#   git -C ~/dotfiles checkout zsh/zshrc
