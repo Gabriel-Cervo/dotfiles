@@ -2,6 +2,8 @@
 
 Portable zsh setup, replacing Oh My Zsh with a minimal, fast, managerless config.
 
+Works on **macOS** and **Linux / WSL** (Ubuntu).
+
 ## One-liner install (fresh machine)
 
 ```bash
@@ -9,6 +11,22 @@ curl -sSL https://raw.githubusercontent.com/Gabriel-Cervo/dotfiles/main/bootstra
 ```
 
 This is idempotent — safe to re-run.
+
+### Windows / WSL prerequisites
+
+If you're on Windows, set up WSL first:
+
+1. Open an **admin PowerShell** and run: `wsl --install`
+2. Restart Windows when prompted
+3. Launch **Ubuntu** from the Start menu; let it finish first-time setup
+4. Inside the Ubuntu terminal, run the one-liner above
+
+You'll also need a **Nerd Font** on the Windows side for the p10k prompt icons to render correctly. The easiest path:
+
+- Open Windows Terminal
+- Settings → Profiles → Defaults → Appearance → Font face → pick a Nerd Font (e.g., `CaskaydiaCove Nerd Font`, `JetBrainsMono Nerd Font`, `FiraCode Nerd Font`)
+- Don't have one? Download from [nerdfonts.com](https://www.nerdfonts.com/), unzip, right-click the .ttf → "Install for all users"
+
 
 ## Sync (existing machine)
 

@@ -1,0 +1,8 @@
+# Force LF line endings for shell scripts and config files
+# (avoids CRLF breakage when checked out on Windows/WSL)
+*.zsh    text eol=lf
+*.sh     text eol=lf
+Brewfile text eol=lf
+
+# Default for everything else: let git auto-detect text and normalize
+* text=auto

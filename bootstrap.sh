@@ -3,18 +3,33 @@
 #
 # Usage:
 #   bash bootstrap.sh            # install (default) — full first-time setup
-#   bash bootstrap.sh sync       # light sync: git pull, brew bundle, plugin updates
+#   bash bootstrap.sh sync       # light sync: git pull, brew/apt, plugin updates
 #   bash bootstrap.sh uninstall  # remove symlinks (does not restore from backup)
 #   bash bootstrap.sh help       # show this help
 #
 # Designed to be run via:
 #   curl -sSL https://raw.githubusercontent.com/Gabriel-Cervo/dotfiles/main/bootstrap.sh | bash
+#
+# Supports:
+#   - macOS (via Homebrew)
+#   - Linux / WSL (via apt; rbenv via git clone; fnm via official installer)
 
 set -euo pipefail
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="$HOME/dotfiles-backup-$(date +%Y%m%d-%H%M%S)"
+
+# OS detection
 OS="$(uname -s)"
+case "$OS" in
+  Darwin) PLATFORM="mac" ;;
+  Linux)  PLATFORM="linux" ;;
+  *)
+    err "Unsupported OS: $OS"
+    err "This script supports macOS and Linux/WSL only."
+    exit 1
+    ;;
+esac
 
 # ---------- output helpers ----------
 
@@ -22,16 +37,11 @@ log()  { printf "\033[1;34m[bootstrap]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[bootstrap]\033[0m %s\n" "$*" >&2; }
 err()  { printf "\033[1;31m[bootstrap]\033[0m %s\n" "$*" >&2; }
 
-# ---------- helpers ----------
+# ---------- package-manager helpers ----------
 
 ensure_brew() {
-  if [[ "$OS" != "Darwin" ]]; then
-    warn "Non-macOS detected ($OS); skipping Homebrew."
-    return 1
-  fi
-  if command -v brew &>/dev/null; then
-    return 0
-  fi
+  if [[ "$PLATFORM" != "mac" ]]; then return 0; fi
+  if command -v brew &>/dev/null; then return 0; fi
   log "Installing Homebrew (may prompt for sudo)..."
   NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   if [[ -x /opt/homebrew/bin/brew ]]; then
@@ -40,6 +50,93 @@ ensure_brew() {
     eval "$(/usr/local/bin/brew shellenv)"
   fi
 }
+
+ensure_apt() {
+  if [[ "$PLATFORM" != "linux" ]]; then return 0; fi
+  if command -v apt-get &>/dev/null; then
+    log "apt-get available."
+    return 0
+  fi
+  err "This Linux distribution doesn't have apt-get."
+  err "Please install these packages manually, then re-run:"
+  err "  zsh, git, curl, build-essential, libssl-dev, libreadline-dev, zlib1g-dev"
+  exit 1
+}
+
+ensure_linux_packages() {
+  if [[ "$PLATFORM" != "linux" ]]; then return 0; fi
+
+  local pkgs=(zsh git curl ca-certificates)
+  local build_pkgs=(build-essential libssl-dev libreadline-dev zlib1g-dev)
+
+  log "Ensuring base packages (zsh, git, curl)..."
+  if ! sudo -n true 2>/dev/null; then
+    warn "  sudo will prompt for your password."
+  fi
+  sudo apt-get update -qq
+  sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
+
+  log "Ensuring Ruby build dependencies..."
+  sudo apt-get install -y --no-install-recommends "${build_pkgs[@]}"
+}
+
+# ---------- tool install helpers ----------
+
+ensure_fnm() {
+  if command -v fnm &>/dev/null; then
+    log "fnm already installed."
+    return 0
+  fi
+  case "$PLATFORM" in
+    mac)
+      log "Installing fnm via Homebrew..."
+      brew install fnm
+      ;;
+    linux)
+      log "Installing fnm via official installer (no shell-config changes)..."
+      curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+      # Make fnm available in this session (env.zsh handles future shells)
+      export PATH="$HOME/.local/bin:$PATH"
+      ;;
+  esac
+}
+
+ensure_rbenv() {
+  if command -v rbenv &>/dev/null; then
+    log "rbenv already installed."
+    return 0
+  fi
+  case "$PLATFORM" in
+    mac)
+      log "Installing rbenv via Homebrew..."
+      brew install rbenv
+      ;;
+    linux)
+      log "Installing rbenv to ~/.rbenv (single-user) + ruby-build plugin..."
+      git clone https://github.com/rbenv/rbenv.git            "$HOME/.rbenv"
+      git clone https://github.com/rbenv/ruby-build.git      "$HOME/.rbenv/plugins/ruby-build"
+      # Add to PATH for this session
+      export PATH="$HOME/.rbenv/bin:$PATH"
+      eval "$(rbenv init - zsh)"
+      ;;
+  esac
+}
+
+chsh_to_zsh() {
+  if [[ "$PLATFORM" != "linux" ]]; then return 0; fi
+  if [[ "$SHELL" == *"zsh"* ]]; then
+    log "Default shell is already zsh; skipping chsh."
+    return 0
+  fi
+  if ! command -v zsh &>/dev/null; then
+    warn "zsh not found; skipping chsh. Install zsh and run: chsh -s \$(which zsh)"
+    return 0
+  fi
+  log "Changing default shell to zsh (may prompt for password)..."
+  chsh -s "$(command -v zsh)" "$USER" || warn "  chsh failed; you can do it manually later."
+}
+
+# ---------- generic helpers ----------
 
 clone_or_pull() {
   local url="$1"
@@ -64,7 +161,7 @@ ensure_symlink() {
     return 0
   fi
 
-  # If something else exists at target, back it up (unless it's already in the dotfiles repo)
+  # If something else exists at target, back it up
   if [[ -e "$target" || -L "$target" ]]; then
     if [[ "$(readlink "$target" 2>/dev/null)" != "$source" ]]; then
       mkdir -p "$BACKUP_DIR"
@@ -87,7 +184,7 @@ read_pinned() {
 # ---------- subcommands ----------
 
 cmd_install() {
-  log "Starting install..."
+  log "Starting install on $PLATFORM ($OS)..."
 
   # If we're being run from a non-dotfiles location (e.g. piped from curl),
   # clone the real repo to ~/dotfiles/ and re-exec from there.
@@ -110,35 +207,45 @@ cmd_install() {
     exec bash "$target/bootstrap.sh" install
   fi
 
-  # (a) Homebrew
-  ensure_brew || warn "Homebrew unavailable; brew-related steps will be skipped."
+  # (a) Package manager
+  ensure_brew || true
+  ensure_apt
 
-  # (b) Brew bundle
-  if command -v brew &>/dev/null && [[ -f "$DOTFILES_DIR/Brewfile" ]]; then
+  # (b) Linux packages + build deps (no-op on macOS)
+  ensure_linux_packages
+
+  # (c) Brew bundle (macOS only)
+  if [[ "$PLATFORM" == "mac" ]] && command -v brew &>/dev/null && [[ -f "$DOTFILES_DIR/Brewfile" ]]; then
     log "Running brew bundle..."
     brew bundle --file="$DOTFILES_DIR/Brewfile" || warn "brew bundle reported errors (continuing)"
   fi
 
-  # (c) p10k
+  # (d) fnm
+  ensure_fnm
+
+  # (e) rbenv
+  ensure_rbenv
+
+  # (f) p10k
   mkdir -p "$HOME/.zsh/themes"
   clone_or_pull https://github.com/romkatv/powerlevel10k.git "$HOME/.zsh/themes/powerlevel10k"
 
-  # (d) Plugins (note: fast-syntax-highlighting lives in zdharma-continuum, not zsh-users)
+  # (g) Plugins (note: fast-syntax-highlighting lives in zdharma-continuum, not zsh-users)
   mkdir -p "$HOME/.zsh/plugins"
   clone_or_pull https://github.com/zsh-users/zsh-autosuggestions     "$HOME/.zsh/plugins/zsh-autosuggestions"
   clone_or_pull https://github.com/zdharma-continuum/fast-syntax-highlighting "$HOME/.zsh/plugins/fast-syntax-highlighting"
   clone_or_pull https://github.com/zsh-users/zsh-completions        "$HOME/.zsh/plugins/zsh-completions"
 
-  # (e) Symlinks
+  # (h) Symlinks
   log "Creating symlinks..."
   ensure_symlink "$HOME/.zshrc"          "$DOTFILES_DIR/zsh/zshrc"
   ensure_symlink "$HOME/.config/zsh"     "$DOTFILES_DIR/zsh/config"
   ensure_symlink "$HOME/.p10k.zsh"       "$DOTFILES_DIR/zsh/p10k.zsh"
 
-  # (f) Node version
+  # (i) Node version
   if command -v fnm &>/dev/null; then
     local node_ver
-    if node_ver="$(read_pinned "$DOTFILES_DIR/.node-version")"; then
+    if node_ver="$(read_pinned "$DOTFILES_DIR/.node-version")" && [[ -n "$node_ver" ]]; then
       log "Installing Node $node_ver via fnm..."
       fnm install "$node_ver" || warn "  fnm install $node_ver failed (continuing)"
       fnm default "$node_ver" 2>/dev/null || true
@@ -147,19 +254,34 @@ cmd_install() {
     warn "fnm not on PATH; skipping Node version install."
   fi
 
-  # (g) Ruby version
+  # (j) Ruby version
   if command -v rbenv &>/dev/null; then
     local ruby_ver
-    if ruby_ver="$(read_pinned "$DOTFILES_DIR/.ruby-version")"; then
+    if ruby_ver="$(read_pinned "$DOTFILES_DIR/.ruby-version")" && [[ -n "$ruby_ver" ]]; then
       log "Installing Ruby $ruby_ver via rbenv..."
+      # On Linux, rbenv was just cloned and may not be on PATH yet
+      if [[ "$PLATFORM" == "linux" ]] && [[ -d "$HOME/.rbenv" ]] && ! command -v rbenv &>/dev/null; then
+        export PATH="$HOME/.rbenv/bin:$PATH"
+        eval "$(rbenv init - zsh)"
+      fi
       rbenv install "$ruby_ver" -s 2>/dev/null || warn "  rbenv install $ruby_ver failed (continuing; you may need build deps)"
     fi
   else
     warn "rbenv not on PATH; skipping Ruby version install."
   fi
 
-  # (h) p10k wizard on first run
-  if [[ ! -s "$HOME/.p10k.zsh" ]]; then
+  # (k) chsh to zsh (Linux only; no-op on macOS where zsh is default)
+  chsh_to_zsh
+
+  # (l) p10k wizard — skip if the repo already has a config
+  if [[ -s "$DOTFILES_DIR/zsh/p10k.zsh" ]]; then
+    local lines
+    lines=$(wc -l < "$DOTFILES_DIR/zsh/p10k.zsh" | tr -d ' ')
+    log "p10k config found in repo ($lines lines); skipping wizard."
+    log "  Run 'p10k configure' manually if you want to change the prompt style."
+  elif [[ -s "$HOME/.p10k.zsh" ]]; then
+    log "p10k config already present at ~/.p10k.zsh; skipping wizard."
+  else
     if [[ -t 0 && -t 1 ]]; then
       log "First run: launching p10k configure..."
       log "  (If you want to skip this and run it manually later, press Ctrl-C now.)"
@@ -170,8 +292,6 @@ cmd_install() {
       warn "Non-interactive shell; skipping p10k configure. Run it manually after install:"
       warn "  p10k configure"
     fi
-  else
-    log "p10k config already present at ~/.p10k.zsh; skipping wizard."
   fi
 
   log "Install complete."
@@ -195,11 +315,15 @@ cmd_sync() {
   ensure_symlink "$HOME/.config/zsh" "$DOTFILES_DIR/zsh/config"
   ensure_symlink "$HOME/.p10k.zsh"   "$DOTFILES_DIR/zsh/p10k.zsh"
 
-  # brew bundle
-  if command -v brew &>/dev/null && [[ -f "$DOTFILES_DIR/Brewfile" ]]; then
+  # Package manager + tool sanity
+  ensure_brew || true
+  ensure_apt
+  if [[ "$PLATFORM" == "mac" ]] && command -v brew &>/dev/null && [[ -f "$DOTFILES_DIR/Brewfile" ]]; then
     log "Running brew bundle..."
     brew bundle --file="$DOTFILES_DIR/Brewfile" || warn "brew bundle reported errors (continuing)"
   fi
+  ensure_fnm
+  ensure_rbenv
 
   # Update plugins
   clone_or_pull https://github.com/romkatv/powerlevel10k.git         "$HOME/.zsh/themes/powerlevel10k"
@@ -230,12 +354,17 @@ bootstrap.sh — dotfiles setup
 
 Usage:
   bash bootstrap.sh            # install (default) — full first-time setup
-  bash bootstrap.sh sync       # light sync: git pull, brew bundle, plugin updates
+  bash bootstrap.sh sync       # light sync: git pull, brew/apt, plugin updates
   bash bootstrap.sh uninstall  # remove symlinks (does not restore from backup)
   bash bootstrap.sh help       # show this help
 
-On a fresh macOS machine, you can install everything in one command:
-  curl -sSL https://raw.githubusercontent.com/Gabriel-Cervo/dotfiles/main/bootstrap.sh | bash
+Supports:
+  - macOS (via Homebrew)
+  - Linux / WSL (via apt; rbenv via git clone; fnm via official installer)
+
+On a fresh machine, you can install everything in one command:
+  macOS / Linux / WSL:
+    curl -sSL https://raw.githubusercontent.com/Gabriel-Cervo/dotfiles/main/bootstrap.sh | bash
 EOF
 }
 
