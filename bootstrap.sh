@@ -89,6 +89,27 @@ read_pinned() {
 cmd_install() {
   log "Starting install..."
 
+  # If we're being run from a non-dotfiles location (e.g. piped from curl),
+  # clone the real repo to ~/dotfiles/ and re-exec from there.
+  if [[ ! -f "$DOTFILES_DIR/Brewfile" ]] || [[ ! -d "$DOTFILES_DIR/zsh" ]]; then
+    local target="$HOME/dotfiles"
+    if [[ -d "$target" ]] && [[ -f "$target/Brewfile" ]] && [[ -d "$target/zsh" ]]; then
+      log "Existing dotfiles repo at $target; re-running from there."
+    else
+      log "Cloning Gabriel-Cervo/dotfiles to $target..."
+      mkdir -p "$(dirname "$target")"
+      if [[ -d "$target/.git" ]]; then
+        git -C "$target" pull --ff-only 2>/dev/null \
+          || err "Could not update $target; resolve manually and re-run."
+      else
+        [[ -z "$(ls -A "$target" 2>/dev/null)" ]] || err "$target exists and is not empty; refusing to clone into it."
+        GIT_TERMINAL_PROMPT=0 git clone --depth=1 https://github.com/Gabriel-Cervo/dotfiles.git "$target"
+      fi
+    fi
+    log "Re-executing from $target/bootstrap.sh..."
+    exec bash "$target/bootstrap.sh" install
+  fi
+
   # (a) Homebrew
   ensure_brew || warn "Homebrew unavailable; brew-related steps will be skipped."
 
