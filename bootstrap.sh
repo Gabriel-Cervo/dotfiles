@@ -136,6 +136,24 @@ chsh_to_zsh() {
   chsh -s "$(command -v zsh)" "$USER" || warn "  chsh failed; you can do it manually later."
 }
 
+ensure_starship() {
+  if command -v starship &>/dev/null; then
+    log "starship already installed."
+    return 0
+  fi
+  case "$PLATFORM" in
+    mac)
+      log "Installing starship via Homebrew..."
+      brew install starship
+      ;;
+    linux)
+      log "Installing starship via official installer (to ~/.local/bin, no sudo)..."
+      curl -sS https://starship.rs/install.sh | sh -s -- -b "$HOME/.local/bin"
+      export PATH="$HOME/.local/bin:$PATH"
+      ;;
+  esac
+}
+
 # ---------- generic helpers ----------
 
 clone_or_pull() {
@@ -226,9 +244,8 @@ cmd_install() {
   # (e) rbenv
   ensure_rbenv
 
-  # (f) p10k
-  mkdir -p "$HOME/.zsh/themes"
-  clone_or_pull https://github.com/romkatv/powerlevel10k.git "$HOME/.zsh/themes/powerlevel10k"
+  # (f) starship
+  ensure_starship
 
   # (g) Plugins (note: fast-syntax-highlighting lives in zdharma-continuum, not zsh-users)
   mkdir -p "$HOME/.zsh/plugins"
@@ -238,9 +255,9 @@ cmd_install() {
 
   # (h) Symlinks
   log "Creating symlinks..."
-  ensure_symlink "$HOME/.zshrc"          "$DOTFILES_DIR/zsh/zshrc"
-  ensure_symlink "$HOME/.config/zsh"     "$DOTFILES_DIR/zsh/config"
-  ensure_symlink "$HOME/.p10k.zsh"       "$DOTFILES_DIR/zsh/p10k.zsh"
+  ensure_symlink "$HOME/.zshrc"               "$DOTFILES_DIR/zsh/zshrc"
+  ensure_symlink "$HOME/.config/zsh"          "$DOTFILES_DIR/zsh/config"
+  ensure_symlink "$HOME/.config/starship.toml" "$DOTFILES_DIR/zsh/starship.toml"
 
   # (i) Node version
   if command -v fnm &>/dev/null; then
@@ -273,26 +290,9 @@ cmd_install() {
   # (k) chsh to zsh (Linux only; no-op on macOS where zsh is default)
   chsh_to_zsh
 
-  # (l) p10k wizard — skip if the repo already has a config
-  if [[ -s "$DOTFILES_DIR/zsh/p10k.zsh" ]]; then
-    local lines
-    lines=$(wc -l < "$DOTFILES_DIR/zsh/p10k.zsh" | tr -d ' ')
-    log "p10k config found in repo ($lines lines); skipping wizard."
-    log "  Run 'p10k configure' manually if you want to change the prompt style."
-  elif [[ -s "$HOME/.p10k.zsh" ]]; then
-    log "p10k config already present at ~/.p10k.zsh; skipping wizard."
-  else
-    if [[ -t 0 && -t 1 ]]; then
-      log "First run: launching p10k configure..."
-      log "  (If you want to skip this and run it manually later, press Ctrl-C now.)"
-      sleep 2
-      ( cd "$HOME" && ZSH="$HOME/.zsh/themes/powerlevel10k" command p10k configure ) || \
-        warn "  p10k configure did not complete; you can re-run it manually."
-    else
-      warn "Non-interactive shell; skipping p10k configure. Run it manually after install:"
-      warn "  p10k configure"
-    fi
-  fi
+  # (l) Starship is ready. Config is in the repo (~/dotfiles/zsh/starship.toml).
+  log "Starship prompt ready (config symlinked from repo)."
+  log "  To customize, edit ~/dotfiles/zsh/starship.toml and run: bash ~/dotfiles/bootstrap.sh sync"
 
   log "Install complete."
   log "  Open a new shell, or: source ~/.zshrc"
@@ -311,9 +311,9 @@ cmd_sync() {
   fi
 
   # Re-apply symlinks
-  ensure_symlink "$HOME/.zshrc"      "$DOTFILES_DIR/zsh/zshrc"
-  ensure_symlink "$HOME/.config/zsh" "$DOTFILES_DIR/zsh/config"
-  ensure_symlink "$HOME/.p10k.zsh"   "$DOTFILES_DIR/zsh/p10k.zsh"
+  ensure_symlink "$HOME/.zshrc"                "$DOTFILES_DIR/zsh/zshrc"
+  ensure_symlink "$HOME/.config/zsh"           "$DOTFILES_DIR/zsh/config"
+  ensure_symlink "$HOME/.config/starship.toml" "$DOTFILES_DIR/zsh/starship.toml"
 
   # Package manager + tool sanity
   ensure_brew || true
@@ -324,9 +324,9 @@ cmd_sync() {
   fi
   ensure_fnm
   ensure_rbenv
+  ensure_starship
 
   # Update plugins
-  clone_or_pull https://github.com/romkatv/powerlevel10k.git         "$HOME/.zsh/themes/powerlevel10k"
   clone_or_pull https://github.com/zsh-users/zsh-autosuggestions     "$HOME/.zsh/plugins/zsh-autosuggestions"
   clone_or_pull https://github.com/zdharma-continuum/fast-syntax-highlighting "$HOME/.zsh/plugins/fast-syntax-highlighting"
   clone_or_pull https://github.com/zsh-users/zsh-completions        "$HOME/.zsh/plugins/zsh-completions"
@@ -336,7 +336,7 @@ cmd_sync() {
 
 cmd_uninstall() {
   warn "Removing dotfiles symlinks..."
-  for link in "$HOME/.zshrc" "$HOME/.config/zsh" "$HOME/.p10k.zsh"; do
+  for link in "$HOME/.zshrc" "$HOME/.config/zsh" "$HOME/.config/starship.toml"; do
     if [[ -L "$link" ]]; then
       log "  removing $link"
       rm "$link"

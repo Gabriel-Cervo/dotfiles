@@ -1,0 +1,21 @@
+# starship.toml — minimal config with the spaceship feel
+# Docs: https://starship.rs/config/
+
+# Add a newline before the prompt for breathing room
+add_newline = true
+
+# Prompt character (the ❯ at the end)
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+
+# Directory
+[directory]
+style = "bold cyan"
+truncation_length = 3
+truncation_symbol = "…/"
+
+# Command duration — only show for commands that took ≥ 2s
+[cmd_duration]
+min_time = 2_000
+format = "[$duration]($style) "
