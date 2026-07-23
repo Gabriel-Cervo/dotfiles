@@ -22,3 +22,7 @@ npx()  { _fnm_init npx  "$@"; }
 pnpm() { _fnm_init pnpm "$@"; }
 yarn() { _fnm_init yarn "$@"; }
 fnm()  { _fnm_init fnm  "$@"; }
+# pi runs node via `#!/usr/bin/env node`; without this wrapper it picks the
+# system Node (e.g. /usr/local/bin/node) before fnm has initialized, which
+# crashes undici with `webidl.util.markAsUncloneable is not a function`.
+pi()   { _fnm_init pi   "$@"; }
